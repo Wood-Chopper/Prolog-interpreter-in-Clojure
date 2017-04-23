@@ -1,6 +1,8 @@
 ;;lein repl
 ;;(load-file "prolog.clj")
 (def memory (ref {}))
+(def r (ref []))
+(def s (ref []))
 
 (defn in? 
 	"true if coll contains elm"
@@ -11,17 +13,31 @@
 		)
 	)
 
+(defn concat_vec
+	[list1 list2]
+	(into [] (concat list1 list2))
+	)
+
 (defn add_rule
 	[head body]
 	(dosync
 		(ref-set
 			memory
 			(merge-with
-				concat
+				concat_vec
 				(deref memory)
-				{(keyword (first head)) (list (cons (rest head) body))}
+				{(keyword (first head)) (into [] (list (cons (into [] (rest head)) (into [] body))))}
 				)
 			)
+		)
+	nil
+	)
+
+(defn to_vec
+	[body]
+	(if (= (count body) 0)
+		[]
+		(into [] (cons (into [] (first body)) (to_vec (rest body))))
 		)
 	)
 
@@ -32,18 +48,18 @@
 	[head & body]
 	(add_rule
 		head
-		body
+		(into [] (to_vec body))
 		)
 	)
 
-(defn unify
+(defn rules
 	[clause]
-	(get memory (keyword (first clause)))
+	(get (deref memory) (keyword (first clause)))
 	)
 
 (defn resolution
-	[r s]
-	(unify (first r))
+	[]
+	(rules (first (deref r)))
 	) 
 
 (defmacro ?-
@@ -51,11 +67,15 @@
 	It takes a variable number of goal clauses.
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
+	(print clauses)
+	(dosync(ref-set r (into [] (concat (deref r) (into [] (to_vec clauses))))))
+	(dosync(ref-set s []))
 	(if
 		(=(count clauses) 0)
 		'()
-		(resolution clauses '())
+		(resolution)
 		)
+		nil
 	)
 
 
@@ -64,7 +84,8 @@
 (<- (parent Parent Child) (mother Parent Child))
 (<- (append (list) T T))
 (<- (append (list H T) L2 (list H TR)) (append T L2 TR))
-(pprint memory)
+
+;(?- (male george))
 
 ; {
 ; 	:male
@@ -111,9 +132,6 @@
 ; 	)
 ; }
 
-
-
-
-
-
-
+(defn tester
+	[w]
+	(keyword w))
