@@ -3,6 +3,9 @@
 (def memory (ref {}))
 (def r (ref []))
 (def s (ref []))
+(def var_known (ref []))
+(def ren (ref 0))
+
 
 (defn in? 
 	"true if coll contains elm"
@@ -60,7 +63,53 @@
 (defn resolution
 	[]
 	(rules (first (deref r)))
-	) 
+
+	)
+
+(defn rename_args
+	[l]
+	(if (= 0(count l))
+		[]
+		(concat_vec
+			(str (keyword (first l)) (deref ren))
+			(rename_args (rest l))
+			)
+		)
+	nil
+	)
+
+(defn rename_clause
+	[clause]
+	(concat_vec
+		(first clause)
+		(rename_args (rest clause))
+		)
+	)
+
+(defn rename_clauses
+	[clauses]
+	(dosync(ref-set ren
+		(+ (deref ren) 1)))
+	(if (= 0(count clauses))
+		[]
+		(concat_vec
+			(rename_clause (first clauses))
+			(rename_clauses(rest clauses))
+			)
+		)
+	)
+
+(defn add_clauses_to_r
+	[clauses]
+	(dosync(ref-set r
+		(into []
+			(concat_vec
+				(into [] (to_vec clauses))
+				(deref r)
+				)
+			)
+		))
+	)
 
 (defmacro ?-
 	"Runs queries against the knowledge base.
@@ -68,7 +117,7 @@
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
 	(print clauses)
-	(dosync(ref-set r (into [] (concat (deref r) (into [] (to_vec clauses))))))
+	(add_clauses_to_r clauses)
 	(dosync(ref-set s []))
 	(if
 		(=(count clauses) 0)
@@ -131,7 +180,3 @@
 ; 		)
 ; 	)
 ; }
-
-(defn tester
-	[w]
-	(keyword w))
