@@ -2,7 +2,7 @@
 ;;(load-file "prolog.clj")
 (def memory (ref {}))
 (def r (ref []))
-(def s (ref []))
+(def s (ref {}))
 (def var_known (ref []))
 (def ren (ref 0))
 
@@ -60,10 +60,101 @@
 	(get (deref memory) (keyword (first clause)))
 	)
 
-(defn resolution
-	[]
-	(rules (first (deref r)))
+(defn match
+	[var1 var2]
+	(dosync
+		(ref-set s
+			(merge
+				(deref s)
+				{(keyword var1) (keyword var2)}
+				)
+			)
+		)
+	true
+	)
 
+(defn create_match
+	[var1 var2]
+	 (if (and (Character/isLowerCase (first var1)) (Character/isLowerCase (first var2)))
+	 	(if (= var1 var2)
+	 		(match var1 var2)
+	 		)
+	 	(if (and (Character/isUpperCase (first var1)) (Character/isUpperCase (first var2)))
+	 		(if (= var1 var2)
+	 			true
+	 			)
+	 		(if (and (Character/isUpperCase (first var1)) (Character/isLowerCase (first var2)))
+	 			(match var1 var2)
+	 			(if (and (Character/isLowerCase (first var1)) (Character/isUpperCase (first var2)))
+	 				(match var2 var1)
+	 				false
+	 				)
+	 			)
+	 		)
+	 	)
+	)
+
+(defn create_match_list
+	[list1 list2]
+	(if (= (count list1) 0)
+		true
+		(if
+			(create_match
+				(first list1)
+				(first list2)
+				)
+			(create_match_list
+				(rest list1)
+				(rest list2)
+				)
+			false
+			)
+		)
+	)
+
+(defn unify
+	[clause rule]
+	(if (not (= (count clause) (count (first rule))))
+		false
+		(if (create_match_list (into [] clause) (first rule))
+			false; TODO continuer
+			)
+		)
+	)
+
+(defn unify_all
+	[clause rules]
+	(if
+		(= (count rules) 0)
+		false
+		(if
+			(unify
+				clause
+				(first rules)
+				)
+			true
+			(unify_all
+				clause
+				(rest rules)
+				)
+			)
+		)
+	)
+
+(defn proof_clauses
+	[clauses]
+	(if (= (count clauses) 0)
+		true
+		)
+	(unify_all
+		(rest (first clauses))
+		(rules (first clauses))
+		)
+	)
+
+(defn pick_first_clauses_group
+	[]
+	(proof_clauses (first (deref r)))
 	)
 
 (defn rename_args
@@ -101,14 +192,18 @@
 
 (defn add_clauses_to_r
 	[clauses]
-	(dosync(ref-set r
-		(into []
-			(concat_vec
-				(into [] (to_vec clauses))
-				(deref r)
+	(dosync
+		(ref-set r
+			(into []
+				(reverse
+					(conj
+						(deref r)
+						(to_vec clauses)
+						)
+					)
 				)
 			)
-		))
+		)
 	)
 
 (defmacro ?-
@@ -116,15 +211,13 @@
 	It takes a variable number of goal clauses.
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
-	(print clauses)
 	(add_clauses_to_r clauses)
 	(dosync(ref-set s []))
 	(if
 		(=(count clauses) 0)
 		'()
-		(resolution)
+		(pick_first_clauses_group)
 		)
-		nil
 	)
 
 
@@ -135,12 +228,15 @@
 (<- (append (list H T) L2 (list H TR)) (append T L2 TR))
 
 ;(?- (male george))
+;(keyword (str (first (quote (parent Parent Child)))) "1")
+
+;(symbol "parent")
 
 ; {
 ; 	:male
 ; 	(
 ; 		(
-; 			(georges)
+; 			(george)
 ; 			()
 ; 		)
 ; 	)
@@ -180,3 +276,9 @@
 ; 		)
 ; 	)
 ; }
+
+
+
+
+
+
