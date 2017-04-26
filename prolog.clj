@@ -66,7 +66,7 @@
 		(ref-set s
 			(merge
 				(deref s)
-				{(keyword var1) (keyword var2)}
+				{(keyword var1) var2}
 				)
 			)
 		)
@@ -75,17 +75,18 @@
 
 (defn create_match
 	[var1 var2]
-	 (if (and (Character/isLowerCase (first var1)) (Character/isLowerCase (first var2)))
+	 (if (and (Character/isLowerCase (first (str var1))) (Character/isLowerCase (first (str var2))))
 	 	(if (= var1 var2)
-	 		(match var1 var2)
+	 		true
+	 		false
 	 		)
-	 	(if (and (Character/isUpperCase (first var1)) (Character/isUpperCase (first var2)))
+	 	(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
 	 		(if (= var1 var2)
 	 			true
 	 			)
-	 		(if (and (Character/isUpperCase (first var1)) (Character/isLowerCase (first var2)))
+	 		(if (and (Character/isUpperCase (first (str var1))) (Character/isLowerCase (first (str var2))))
 	 			(match var1 var2)
-	 			(if (and (Character/isLowerCase (first var1)) (Character/isUpperCase (first var2)))
+	 			(if (and (Character/isLowerCase (first (str var1))) (Character/isUpperCase (first (str var2))))
 	 				(match var2 var1)
 	 				false
 	 				)
@@ -117,9 +118,15 @@
 	(if (not (= (count clause) (count (first rule))))
 		false
 		(if (create_match_list (into [] clause) (first rule))
-			false; TODO continuer
+			true
+			false
 			)
 		)
+	)
+
+(defn backtrack
+	[]
+	(pick_first_clauses_group)
 	)
 
 (defn unify_all
@@ -132,7 +139,7 @@
 				clause
 				(first rules)
 				)
-			true
+			(backtrack)
 			(unify_all
 				clause
 				(rest rules)
@@ -145,16 +152,30 @@
 	[clauses]
 	(if (= (count clauses) 0)
 		true
-		)
-	(unify_all
-		(rest (first clauses))
-		(rules (first clauses))
+		(if (unify_all
+				(rest (first clauses))
+				(rules (first clauses))
+				)
+			(proof_clauses (rest clauses))
+			false
+			)
 		)
 	)
 
 (defn pick_first_clauses_group
 	[]
-	(proof_clauses (first (deref r)))
+	(if (= 0 (count (deref r)))
+		true
+		(let [clause (first (deref r))]
+			(dosync
+				(ref-set
+					r
+					(rest (deref r))
+					)
+				)
+			(proof_clauses clause)
+			)
+		)
 	)
 
 (defn rename_args
@@ -216,7 +237,10 @@
 	(if
 		(=(count clauses) 0)
 		'()
-		(pick_first_clauses_group)
+		(let [result (pick_first_clauses_group)]
+			(println (deref s))
+			result
+			)
 		)
 	)
 
@@ -226,6 +250,11 @@
 (<- (parent Parent Child) (mother Parent Child))
 (<- (append (list) T T))
 (<- (append (list H T) L2 (list H TR)) (append T L2 TR))
+
+(<- (parent a b))
+(<- (parent b c))
+
+(<- (gp A C) (parent A B) (parent B C))
 
 ;(?- (male george))
 ;(keyword (str (first (quote (parent Parent Child)))) "1")
