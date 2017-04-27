@@ -7,6 +7,53 @@
 (def ren (ref 0))
 
 
+
+(defn concat_vec
+	[list1 list2]
+	(into [] (concat list1 list2))
+	)
+
+(defn rename_arg
+	[arg]
+	(if (= 0 (deref ren))
+		arg
+		(symbol (str arg (deref ren)))
+		)
+	)
+
+(defn rename_args
+	[args]
+	(if (= 0(count args))
+		[]
+		(concat_vec
+			(rename_arg (first args))
+			(rename_args (rest args))
+			)
+		)
+	nil
+	)
+
+(defn rename_clause
+	[clause]
+	(concat_vec
+		(first clause)
+		(rename_args (rest clause))
+		)
+	)
+
+(defn rename_clauses
+	[clauses]
+	(dosync(ref-set ren
+		(+ (deref ren) 1)))
+	(if (= 0(count clauses))
+		[]
+		(concat_vec
+			(rename_clause (first clauses))
+			(rename_clauses(rest clauses))
+			)
+		)
+	)
+
 (defn in? 
 	"true if coll contains elm"
 	[coll elm]  
@@ -14,11 +61,6 @@
 		#(= elm %)
 		coll
 		)
-	)
-
-(defn concat_vec
-	[list1 list2]
-	(into [] (concat list1 list2))
 	)
 
 (defn add_rule
@@ -55,39 +97,61 @@
 		)
 	)
 
-(defn rules
+(defn get_rules
 	[clause]
 	(get (deref memory) (keyword (first clause)))
 	)
 
-(defn match
+(defn no_conflict
 	[var1 var2]
-	(dosync
-		(ref-set s
-			(merge
-				(deref s)
-				{(keyword var1) var2}
-				)
+	(if (contains? (deref s) (keyword var1))
+		(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
+			true
+			false
+			)
+		(if (in? (vals (deref s)) var2)
+			false
+			true
 			)
 		)
-	true
+	)
+
+(defn match
+	[var1 var2]
+	(if (= (get (deref s) (keyword var1)) var2)
+		true
+		(if (no_conflict var1 var2)
+			(do
+				(dosync
+					(ref-set s
+						(merge
+							(deref s)
+							{(keyword var1) var2}
+							)
+						)
+					)
+				true
+				)
+			false
+			)
+		)
 	)
 
 (defn create_match
 	[var1 var2]
-	 (if (and (Character/isLowerCase (first (str var1))) (Character/isLowerCase (first (str var2))))
+	;(println (symbol (str var1 (deref ren))))
+	;(match (symbol (str var1 (deref ren))) (symbol (str var2 (deref ren))))
+	(if (and (Character/isLowerCase (first (str var1))) (Character/isLowerCase (first (str var2))))
 	 	(if (= var1 var2)
 	 		true
 	 		false
 	 		)
 	 	(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
-	 		(if (= var1 var2)
-	 			true
-	 			)
+	 		(match (rename_arg var1) (rename_arg var2))
 	 		(if (and (Character/isUpperCase (first (str var1))) (Character/isLowerCase (first (str var2))))
-	 			(match var1 var2)
+	 			(match (rename_arg var1) var2)
 	 			(if (and (Character/isLowerCase (first (str var1))) (Character/isUpperCase (first (str var2))))
-	 				(match var2 var1)
+	 				(match (rename_arg var2) var1)
 	 				false
 	 				)
 	 			)
@@ -115,34 +179,92 @@
 
 (defn unify
 	[clause rule]
+	(println "unify " clause rule)
 	(if (not (= (count clause) (count (first rule))))
 		false
-		(if (create_match_list (into [] clause) (first rule))
-			true
-			false
+		(let [saved_s (deref s)]
+			(if (create_match_list (into [] clause) (first rule))
+				true
+				(do
+					(dosync
+						(ref-set s
+							saved_s
+							)
+						)
+					false
+					)
+				)
 			)
 		)
 	)
 
-(defn backtrack
-	[]
-	(pick_first_clauses_group)
+(defn unify_and
+	[clauses]
+	(println "and " clauses)
+	(if (or (= 0 (count clauses)) (= nil clauses))
+		true
+		(let [saved_s (deref s)]
+			(if
+				(and
+					(unify_or
+						(first clauses)
+						(get_rules (first clauses))
+						)
+					(unify_and (rest clauses))
+					)
+				true
+				(do
+					(dosync
+						(ref-set s
+							saved_s
+							)
+						)
+					false
+					)
+				)
+			)
+		)
 	)
 
-(defn unify_all
+(defn unify_or
 	[clause rules]
+	(println "or  " clause " with " (first rules))
 	(if
-		(= (count rules) 0)
+		(= 0 (count rules))
 		false
-		(if
-			(unify
-				clause
-				(first rules)
-				)
-			(backtrack)
-			(unify_all
-				clause
-				(rest rules)
+		(let [saved_s (deref s)]
+			(if
+				(unify
+					(rest clause)
+					(first rules)
+					)
+				(if (unify_and (rest (first rules)))
+					true
+					(do
+						(println (first rules) " pas bon choix")
+						(dosync
+							(ref-set s
+								saved_s
+								)
+							)
+						(unify_or
+							clause
+							(rest rules)
+							)
+						)
+					)
+				(do
+					(println (first rules) " pas bon choix")
+					(dosync
+						(ref-set s
+							saved_s
+							)
+						)
+					(unify_or
+						clause
+						(rest rules)
+						)
+					)
 				)
 			)
 		)
@@ -152,61 +274,12 @@
 	[clauses]
 	(if (= (count clauses) 0)
 		true
-		(if (unify_all
+		(if (unify_or
 				(rest (first clauses))
-				(rules (first clauses))
+				(get_rules (first clauses))
 				)
 			(proof_clauses (rest clauses))
 			false
-			)
-		)
-	)
-
-(defn pick_first_clauses_group
-	[]
-	(if (= 0 (count (deref r)))
-		true
-		(let [clause (first (deref r))]
-			(dosync
-				(ref-set
-					r
-					(rest (deref r))
-					)
-				)
-			(proof_clauses clause)
-			)
-		)
-	)
-
-(defn rename_args
-	[l]
-	(if (= 0(count l))
-		[]
-		(concat_vec
-			(str (keyword (first l)) (deref ren))
-			(rename_args (rest l))
-			)
-		)
-	nil
-	)
-
-(defn rename_clause
-	[clause]
-	(concat_vec
-		(first clause)
-		(rename_args (rest clause))
-		)
-	)
-
-(defn rename_clauses
-	[clauses]
-	(dosync(ref-set ren
-		(+ (deref ren) 1)))
-	(if (= 0(count clauses))
-		[]
-		(concat_vec
-			(rename_clause (first clauses))
-			(rename_clauses(rest clauses))
 			)
 		)
 	)
@@ -233,11 +306,11 @@
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
 	(add_clauses_to_r clauses)
-	(dosync(ref-set s []))
+	(dosync(ref-set s {}))
 	(if
 		(=(count clauses) 0)
 		'()
-		(let [result (pick_first_clauses_group)]
+		(let [result (unify_and clauses)]
 			(println (deref s))
 			result
 			)
@@ -246,20 +319,29 @@
 
 
 (<- (male george))
-(<- (parent Parent Child) (father Parent Child))
-(<- (parent Parent Child) (mother Parent Child))
 (<- (append (list) T T))
 (<- (append (list H T) L2 (list H TR)) (append T L2 TR))
-
-(<- (parent a b))
+;(<- (parent Parent Child) (father Parent Child))
+;(<- (parent Parent Child) (mother Parent Child))
 (<- (parent b c))
+(<- (parent a b))
 
 (<- (gp A C) (parent A B) (parent B C))
 
-;(?- (male george))
-;(keyword (str (first (quote (parent Parent Child)))) "1")
+(println "")
+(println '(?- (parent X c)))
+(?- (parent X c))
 
-;(symbol "parent")
+(println "")
+(println '(?- (gp X c)))
+(?- (gp X c))
+
+(println "")
+(println '(?- (gp X Y)))
+(?- (gp X Y))
+
+
+;(println (symbol (str var1 1)))
 
 ; {
 ; 	:male
@@ -305,8 +387,6 @@
 ; 		)
 ; 	)
 ; }
-
-
 
 
 
