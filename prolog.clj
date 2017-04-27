@@ -228,42 +228,30 @@
 
 (defn unify_or
 	[clause rules]
-	(println "or  " clause " with " (first rules))
+	(println "or  " clause " with " rules)
 	(if
 		(= 0 (count rules))
 		false
 		(let [saved_s (deref s)]
-			(if
-				(unify
-					(rest clause)
-					(first rules)
-					)
-				(if (unify_and (rest (first rules)))
-					true
+			(or
+				(if
+					(unify
+						(rest clause)
+						(first rules)
+						)
+					(unify_and (rest (first rules)))
 					(do
-						(println (first rules) " pas bon choix")
 						(dosync
 							(ref-set s
 								saved_s
 								)
 							)
-						(unify_or
-							clause
-							(rest rules)
-							)
+						false
 						)
 					)
-				(do
-					(println (first rules) " pas bon choix")
-					(dosync
-						(ref-set s
-							saved_s
-							)
-						)
-					(unify_or
-						clause
-						(rest rules)
-						)
+				(unify_or
+					clause
+					(rest rules)
 					)
 				)
 			)
