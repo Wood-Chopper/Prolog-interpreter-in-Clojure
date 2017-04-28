@@ -61,6 +61,13 @@
 		)
 	)
 
+(defn test_rename
+	[& clauses]
+	(println clauses)
+	(println (rename_clauses clauses))
+	nil
+	)
+
 (defn in? 
 	"true if coll contains elm"
 	[coll elm]  
@@ -186,7 +193,6 @@
 
 (defn unify
 	[clause rule]
-	(println "unify " clause rule)
 	(if (not (= (count clause) (count (first rule))))
 		false
 		(let [saved_s (deref s)]
@@ -207,18 +213,15 @@
 
 (defn unify_and
 	[clauses]
-	(println "and " clauses)
 	(if (or (= 0 (count clauses)) (= nil clauses))
 		true
 		(let [saved_s (deref s)]
 			(if
-				(and
-					(unify_or
-						(first clauses)
-						(get_rules (first clauses))
-						)
-					(unify_and (rest clauses))
-					)
+				(unify_or
+					(first clauses)
+					(get_rules (first clauses))
+					(rest clauses)
+				)
 				true
 				(do
 					(dosync
@@ -234,42 +237,36 @@
 	)
 
 (defn unify_or
-	[clause rules]
-	(println "or  " clause " with " rules)
+	[clause rules nexts]
 	(if
 		(= 0 (count rules))
 		false
 		(let [saved_s (deref s)]
-			(or
-				(if
+			(if
+				(and
 					(unify
 						(rest clause)
 						(first rules)
 						)
-					(if (unify_and (rest (first rules)))
-						true
-						(do
-							(println "backtrack")
-							(dosync
-								(ref-set s
-									saved_s
-									)
-								)
-							(unify_or clause (rest rules))
-							)
+					(unify_and;renomer
+						 (rest (first rules))
 						)
+					(unify_and
+						nexts
+						)
+					)
+					true
 					(do
 						(dosync
 							(ref-set s
 								saved_s
 								)
 							)
-						false
+						(unify_or
+							clause
+							(rest rules)
+							nexts
 						)
-					)
-				(unify_or
-					clause
-					(rest rules)
 					)
 				)
 			)
@@ -290,28 +287,11 @@
 		)
 	)
 
-(defn add_clauses_to_r
-	[clauses]
-	(dosync
-		(ref-set r
-			(into []
-				(reverse
-					(conj
-						(deref r)
-						(to_vec clauses)
-						)
-					)
-				)
-			)
-		)
-	)
-
 (defmacro ?-
 	"Runs queries against the knowledge base.
 	It takes a variable number of goal clauses.
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
-	(add_clauses_to_r clauses)
 	(dosync(ref-set s {}))
 	(if
 		(=(count clauses) 0)
@@ -325,15 +305,22 @@
 
 
 (<- (male george))
+
 (<- (append (list) T T))
 (<- (append (list H T) L2 (list H TR)) (append T L2 TR))
-;(<- (parent Parent Child) (father Parent Child))
-;(<- (parent Parent Child) (mother Parent Child))
+
+(<- (parent Parent Child) (father Parent Child))
+(<- (parent Parent Child) (mother Parent Child))
 (<- (parent b c))
 (<- (parent a b))
 
 (<- (gp A C) (parent A B) (parent B C))
 (<- (gp s f))
+
+(<- (ami A C) (ami A B) (ami B C))
+(<- (ami a b))
+(<- (ami b c))
+(<- (ami c d))
 
 (println "")
 (println '(?- (parent X c)))
@@ -346,6 +333,10 @@
 (println "")
 (println '(?- (gp X Y)))
 (?- (gp X Y))
+
+(println "")
+(println '(?- (ami X Y)))
+;(?- (ami a d))
 
 
 ;(println (symbol (str var1 1)))
