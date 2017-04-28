@@ -6,6 +6,13 @@
 (def var_known (ref []))
 (def ren (ref 0))
 
+(declare
+	<-
+	?-
+	unify_or
+	unify_and
+	unify
+	)
 
 
 (defn concat_vec
@@ -239,7 +246,18 @@
 						(rest clause)
 						(first rules)
 						)
-					(unify_and (rest (first rules)))
+					(if (unify_and (rest (first rules)))
+						true
+						(do
+							(println "backtrack")
+							(dosync
+								(ref-set s
+									saved_s
+									)
+								)
+							(unify_or clause (rest rules))
+							)
+						)
 					(do
 						(dosync
 							(ref-set s
@@ -315,6 +333,7 @@
 (<- (parent a b))
 
 (<- (gp A C) (parent A B) (parent B C))
+(<- (gp s f))
 
 (println "")
 (println '(?- (parent X c)))
