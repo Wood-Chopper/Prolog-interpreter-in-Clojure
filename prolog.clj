@@ -22,9 +22,18 @@
 
 (defn rename_arg
 	[arg]
-	(if (= 0 (deref ren))
+	(if (or (= 0 (deref ren)) (Character/isLowerCase (first (str arg))))
 		arg
-		(symbol (str arg (deref ren)))
+		(do
+			(match
+				(if (= (deref ren) 1)
+					arg
+					(symbol (str arg (- (deref ren) 1)))
+					)
+				(symbol (str arg (deref ren)))
+				)
+			(symbol (str arg (deref ren)))
+			)
 		)
 	)
 
@@ -33,39 +42,40 @@
 	(if (= 0(count args))
 		[]
 		(concat_vec
-			(rename_arg (first args))
+			[(rename_arg (first args))]
 			(rename_args (rest args))
 			)
 		)
-	nil
 	)
 
 (defn rename_clause
 	[clause]
 	(concat_vec
-		(first clause)
+		[(first clause)]
 		(rename_args (rest clause))
 		)
 	)
 
 (defn rename_clauses
 	[clauses]
-	(dosync(ref-set ren
-		(+ (deref ren) 1)))
 	(if (= 0(count clauses))
 		[]
 		(concat_vec
-			(rename_clause (first clauses))
+			[(rename_clause (first clauses))]
 			(rename_clauses(rest clauses))
 			)
 		)
 	)
 
-(defn test_rename
-	[& clauses]
-	(println clauses)
-	(println (rename_clauses clauses))
-	nil
+(defn rename_rules
+	[rules]
+	(if (= 0(count rules))
+		[]
+		(concat_vec
+			[(into [] (rename_clauses (first rules)))]
+			(rename_rules(rest rules))
+			)
+		)
 	)
 
 (defn in? 
@@ -113,11 +123,12 @@
 
 (defn get_rules
 	[clause]
-	(get (deref memory) (keyword (first clause)))
+	(rename_rules (get (deref memory) (keyword (first clause))))
 	)
 
-(defn no_conflict
+(defn can_be_bound
 	[var1 var2]
+	;(println var1 " " var2 " " (deref s))
 	(if (contains? (deref s) (keyword var1))
 		(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
 			true
@@ -134,7 +145,7 @@
 	[var1 var2]
 	(if (= (get (deref s) (keyword var1)) var2)
 		true
-		(if (no_conflict var1 var2)
+		(if (can_be_bound var1 var2)
 			(do
 				(dosync
 					(ref-set s
@@ -146,7 +157,7 @@
 					)
 				true
 				)
-			false
+			false;if var1 = var2 rename
 			)
 		)
 	)
@@ -161,11 +172,11 @@
 	 		false
 	 		)
 	 	(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
-	 		(match (rename_arg var1) (rename_arg var2))
+	 		(match var1 var2)
 	 		(if (and (Character/isUpperCase (first (str var1))) (Character/isLowerCase (first (str var2))))
-	 			(match (rename_arg var1) var2)
+	 			(match var1 var2)
 	 			(if (and (Character/isLowerCase (first (str var1))) (Character/isUpperCase (first (str var2))))
-	 				(match (rename_arg var2) var1)
+	 				(match var2 var1)
 	 				false
 	 				)
 	 			)
@@ -215,15 +226,23 @@
 	[clauses]
 	(if (or (= 0 (count clauses)) (= nil clauses))
 		true
-		(let [saved_s (deref s)]
+		(let [saved_s (deref s) saved_ren (deref ren)]
 			(if
 				(unify_or
 					(first clauses)
-					(get_rules (first clauses))
+					(do
+						(println (first clauses))
+						(let [a (get_rules (first clauses))]
+							(dosync (ref-set ren (+ (deref ren) 1)))
+							(println a)
+							a
+							)
+						)
 					(rest clauses)
 				)
 				true
 				(do
+					(dosync (ref-set ren saved_ren))
 					(dosync
 						(ref-set s
 							saved_s
@@ -241,15 +260,15 @@
 	(if
 		(= 0 (count rules))
 		false
-		(let [saved_s (deref s)]
+		(let [saved_s (deref s) saved_ren (deref ren)]
 			(if
 				(and
 					(unify
 						(rest clause)
 						(first rules)
 						)
-					(unify_and;renomer
-						 (rest (first rules))
+					(unify_and
+						(rest (first rules))
 						)
 					(unify_and
 						nexts
@@ -257,6 +276,7 @@
 					)
 					true
 					(do
+						(dosync (ref-set ren saved_ren))
 						(dosync
 							(ref-set s
 								saved_s
@@ -269,20 +289,6 @@
 						)
 					)
 				)
-			)
-		)
-	)
-
-(defn proof_clauses
-	[clauses]
-	(if (= (count clauses) 0)
-		true
-		(if (unify_or
-				(rest (first clauses))
-				(get_rules (first clauses))
-				)
-			(proof_clauses (rest clauses))
-			false
 			)
 		)
 	)
@@ -321,6 +327,12 @@
 (<- (ami a b))
 (<- (ami b c))
 (<- (ami c d))
+(<- (ami d e))
+(<- (ami e f))
+
+(<- (c a b))
+(<- (b A B) (c B A))
+(<- (a A B) (b B A))
 
 (println "")
 (println '(?- (parent X c)))
@@ -335,8 +347,12 @@
 (?- (gp X Y))
 
 (println "")
-(println '(?- (ami X Y)))
-;(?- (ami a d))
+(println '(?- (a X Y)))
+(?- (a X Y))
+
+(println "")
+(println '(?- (ami a f)))
+;(?- (ami a f))
 
 
 ;(println (symbol (str var1 1)))
