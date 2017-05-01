@@ -12,6 +12,7 @@
 	unify_or
 	unify_and
 	unify
+	match
 	)
 
 
@@ -22,17 +23,11 @@
 
 (defn rename_arg
 	[arg]
-	(if (or (= 0 (deref ren)) (Character/isLowerCase (first (str arg))))
+	(if (Character/isLowerCase (first (str arg)))
 		arg
-		(do
-			(match
-				(if (= (deref ren) 1)
-					arg
-					(symbol (str arg (- (deref ren) 1)))
-					)
-				(symbol (str arg (deref ren)))
-				)
-			(symbol (str arg (deref ren)))
+		(if (in? (vals (deref s)) arg)
+			(rename_arg (symbol (str (str arg) "*")))
+			arg
 			)
 		)
 	)
@@ -48,20 +43,12 @@
 		)
 	)
 
-(defn rename_clause
-	[clause]
-	(concat_vec
-		[(first clause)]
-		(rename_args (rest clause))
-		)
-	)
-
 (defn rename_clauses
 	[clauses]
 	(if (= 0(count clauses))
 		[]
 		(concat_vec
-			[(rename_clause (first clauses))]
+			[(rename_args (first clauses))]
 			(rename_clauses(rest clauses))
 			)
 		)
@@ -128,7 +115,6 @@
 
 (defn can_be_bound
 	[var1 var2]
-	;(println var1 " " var2 " " (deref s))
 	(if (contains? (deref s) (keyword var1))
 		(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
 			true
@@ -137,6 +123,73 @@
 		(if (in? (vals (deref s)) var2)
 			false
 			true
+			)
+		)
+	)
+
+(defn rename_key
+	[key]
+	(if (contains? (deref s) key)
+		(rename_key (symbol (str (str key) "*")))
+		key
+		)
+	)
+
+(defn rename_value
+	[value]
+	(if (Character/isLowerCase (first (str value)))
+		value
+		(if (in? (vals (deref s)) value)
+			(rename_key (symbol (str (str value) "*")))
+			value
+			)
+		)
+	)
+
+(defn get_last_value
+	[value]
+	(if (contains? (deref s) (keyword value))
+		(let [value2 (get (deref s) (keyword value))]
+			(dosync
+				(ref-set
+					s
+					(dissoc (deref s) (keyword value))
+					)
+				)
+			(get_last_value value2)
+			)
+		value
+		)
+	)
+
+(defn clean_key
+	[key]
+	(let [value (get (deref s) key)]
+		(if (or (= nil value) (Character/isLowerCase (first (str value))))
+			nil
+			(let [new_value (get_last_value value)]
+				(dosync
+					(ref-set
+						s
+						(merge
+							(deref s)
+							{key new_value}
+							)
+						)
+					)
+				nil
+				)
+			)
+		)
+	)
+
+(defn clean_keys
+	[keys]
+	(if (or (= nil keys) (= 0 (count keys)))
+		nil
+		(do
+			(clean_key (first keys))
+			(clean_keys (rest keys))
 			)
 		)
 	)
@@ -155,17 +208,16 @@
 							)
 						)
 					)
+				(clean_keys (keys (deref s)))
 				true
 				)
-			false;if var1 = var2 rename
+			false
 			)
 		)
 	)
 
 (defn create_match
 	[var1 var2]
-	;(println (symbol (str var1 (deref ren))))
-	;(match (symbol (str var1 (deref ren))) (symbol (str var2 (deref ren))))
 	(if (and (Character/isLowerCase (first (str var1))) (Character/isLowerCase (first (str var2))))
 	 	(if (= var1 var2)
 	 		true
@@ -230,14 +282,7 @@
 			(if
 				(unify_or
 					(first clauses)
-					(do
-						(println (first clauses))
-						(let [a (get_rules (first clauses))]
-							(dosync (ref-set ren (+ (deref ren) 1)))
-							(println a)
-							a
-							)
-						)
+					(get_rules (first clauses))
 					(rest clauses)
 				)
 				true
@@ -323,12 +368,12 @@
 (<- (gp A C) (parent A B) (parent B C))
 (<- (gp s f))
 
-(<- (ami A C) (ami A B) (ami B C))
 (<- (ami a b))
 (<- (ami b c))
 (<- (ami c d))
 (<- (ami d e))
 (<- (ami e f))
+(<- (ami A C) (ami A B) (ami B C))
 
 (<- (c a b))
 (<- (b A B) (c B A))
@@ -336,23 +381,23 @@
 
 (println "")
 (println '(?- (parent X c)))
-(?- (parent X c))
+(println(?- (parent X c)))
 
 (println "")
 (println '(?- (gp X c)))
-(?- (gp X c))
+(println(?- (gp X c)))
 
 (println "")
 (println '(?- (gp X Y)))
-(?- (gp X Y))
+(println(?- (gp X Y)))
 
 (println "")
 (println '(?- (a X Y)))
-(?- (a X Y))
+(println(?- (a X Y)))
 
 (println "")
-(println '(?- (ami a f)))
-;(?- (ami a f))
+(println '(?- (ami a d)))
+(println(?- (ami a d)))
 
 
 ;(println (symbol (str var1 1)))
