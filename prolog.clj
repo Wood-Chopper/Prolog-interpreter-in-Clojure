@@ -13,6 +13,7 @@
 	unify_and
 	unify
 	match
+	in?
 	)
 
 
@@ -25,7 +26,7 @@
 	[arg]
 	(if (Character/isLowerCase (first (str arg)))
 		arg
-		(if (in? (vals (deref s)) arg)
+		(if (or (in? (vals (deref s)) arg) (contains? (deref s) (keyword arg)))
 			(rename_arg (symbol (str (str arg) "*")))
 			arg
 			)
@@ -113,6 +114,17 @@
 	(rename_rules (get (deref memory) (keyword (first clause))))
 	)
 
+(defn key_of_val
+	[val keys]
+	(if (or (= keys nil) (= 0 (count keys)))
+		nil
+		(if (= (get (deref s) (first keys)) val)
+			(first keys)
+			(key_of_val val (rest keys))
+			)
+		)
+	)
+
 (defn can_be_bound
 	[var1 var2]
 	(if (contains? (deref s) (keyword var1))
@@ -126,7 +138,8 @@
 			)
 		)
 	)
-
+; :d C
+; :C b => false
 (defn rename_key
 	[key]
 	(if (contains? (deref s) key)
@@ -194,6 +207,17 @@
 		)
 	)
 
+(defn consistent
+	[keys]
+	(if (or (= nil keys) (= 0 (count keys)))
+		true
+		(if (and (Character/isLowerCase (first (rest (str (first keys))))) (Character/isLowerCase (first (str (get (deref s) (first keys))))) (not (= (first keys) (keyword (get (deref s) (first keys))) )))
+			false
+			(consistent (rest keys))
+			)
+		)
+	)
+
 (defn match
 	[var1 var2]
 	(if (= (get (deref s) (keyword var1)) var2)
@@ -209,7 +233,7 @@
 						)
 					)
 				(clean_keys (keys (deref s)))
-				true
+				(consistent (keys (deref s)))
 				)
 			false
 			)
@@ -228,7 +252,7 @@
 	 		(if (and (Character/isUpperCase (first (str var1))) (Character/isLowerCase (first (str var2))))
 	 			(match var1 var2)
 	 			(if (and (Character/isLowerCase (first (str var1))) (Character/isUpperCase (first (str var2))))
-	 				(match var2 var1)
+	 				(match var1 var2)
 	 				false
 	 				)
 	 			)
@@ -338,6 +362,50 @@
 		)
 	)
 
+(defn to_keys
+	[vars]
+	(if (or (= nil vars) (= 0 (count vars)))
+		nil
+		(if (Character/isUpperCase (first (str (first vars))))
+			(concat
+				[(keyword (first vars))]
+				(to_keys (rest vars))
+				)
+			(to_keys (rest vars))
+			)
+		)
+	)
+
+(defn concat_in
+	[lists]
+	(if (or (= nil lists) (= 0 (count lists)))
+		nil
+		(concat
+			(to_keys (first lists))
+			(concat_in (rest lists))
+			)
+		)
+	)
+
+(defn keep_unknow
+	[vars key_s]
+	(if (or (= nil key_s) (= 0 (count key_s)))
+		nil
+		(if (not (in? vars (first key_s)))
+			(do
+				(dosync
+					(ref-set
+						s
+						(dissoc (deref s) (first key_s))
+						)
+					)
+				(keep_unknow vars (rest key_s))
+				)
+			(keep_unknow vars (rest key_s))
+			)
+		)
+	)
+
 (defmacro ?-
 	"Runs queries against the knowledge base.
 	It takes a variable number of goal clauses.
@@ -347,7 +415,8 @@
 	(if
 		(=(count clauses) 0)
 		'()
-		(let [result (unify_and clauses)]
+		(let [result (unify_and clauses) unknow (distinct (concat_in clauses))]
+			(keep_unknow unknow (keys (deref s)))
 			(println (deref s))
 			result
 			)
@@ -396,8 +465,8 @@
 (println(?- (a X Y)))
 
 (println "")
-(println '(?- (ami a d)))
-(println(?- (ami a d)))
+(println '(?- (ami a f)))
+(println(?- (ami a f)))
 
 
 ;(println (symbol (str var1 1)))
