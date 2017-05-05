@@ -1,10 +1,8 @@
 ;;lein repl
 ;;(load-file "prolog.clj")
+
 (def memory (ref {}))
-(def r (ref []))
 (def s (ref {}))
-(def var_known (ref []))
-(def ren (ref 0))
 
 (declare
 	<-
@@ -261,6 +259,9 @@
 	)
 
 (defn create_match_list
+	"Create the bindings between list1 and list2.
+	* true if it can be bound
+	* false otherwise"
 	[list1 list2]
 	(if (= (count list1) 0)
 		true
@@ -279,6 +280,7 @@
 	)
 
 (defn unify
+	"Test if the clause can be unified with the rule."
 	[clause rule]
 	(if (not (= (count clause) (count (first rule))))
 		false
@@ -299,10 +301,16 @@
 	)
 
 (defn unify_and
+	"The clauses must all be satisfied, there are tested one by one:
+	* If there is no more clause to test, this return true
+	* To satisfy a clause, it must find a rule in the database that satisfy:
+		1- the first clause itself
+		2- the rest of the clauses
+	* If there are no rules that satisfy at least one clause, this return false."
 	[clauses]
 	(if (or (= 0 (count clauses)) (= nil clauses))
 		true
-		(let [saved_s (deref s) saved_ren (deref ren)]
+		(let [saved_s (deref s)]
 			(if
 				(unify_or
 					(first clauses)
@@ -311,7 +319,6 @@
 				)
 				true
 				(do
-					(dosync (ref-set ren saved_ren))
 					(dosync
 						(ref-set s
 							saved_s
@@ -325,11 +332,19 @@
 	)
 
 (defn unify_or
+	"The clause clause is tested with the rules one by one:
+	* When a unification is possible between a rule and the clause,
+		1- the bindings are modified in the variable s
+		2- the conditions of the rule must be satisfied (unify_and)
+		3- and the nexts clauses must also be satisfied (unify_and).
+	* Or else, the s is reset to his previous value
+	and the next rule is tested.
+	* If there is no more rule to test, this return false."
 	[clause rules nexts]
 	(if
 		(= 0 (count rules))
 		false
-		(let [saved_s (deref s) saved_ren (deref ren)]
+		(let [saved_s (deref s)]
 			(if
 				(and
 					(unify
@@ -345,7 +360,6 @@
 					)
 					true
 					(do
-						(dosync (ref-set ren saved_ren))
 						(dosync
 							(ref-set s
 								saved_s
@@ -434,6 +448,9 @@
 (<- (parent b c))
 (<- (parent a b))
 
+(<- (mother cecilia a))
+(<- (father george a))
+
 (<- (gp A C) (parent A B) (parent B C))
 (<- (gp s f))
 
@@ -467,6 +484,17 @@
 (println "")
 (println '(?- (ami a f)))
 (println(?- (ami a f)))
+
+
+(println "")
+(println '(?- (mother cecilia C) (father george C)))
+(println (?- (mother cecilia C) (father george C)))
+
+
+
+(println "")
+(println '(?- (append (list 1 (list 2 (list))) (list 3 (list 4 (list))) R)))
+(println (?- (append (list 1 (list 2 (list))) (list 3 (list 4 (list))) R)))
 
 
 ;(println (symbol (str var1 1)))
