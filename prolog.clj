@@ -165,12 +165,12 @@
 	"Cleans the bindings to eliminate the intermediate variables.
 	Example: {:A X, :X F, :F R} becomes {:A R}.
 	Apply the cleaning on all the `keys'."
-	[keys]
-	(if (or (= nil keys) (= 0 (count keys)))
-		nil
-		(do
+	[key_s]
+	(loop [keys key_s]
+		(when (and (not= nil keys) (not= 0 (count keys)))
 			(clean_key (first keys))
-			(clean_keys (rest keys)))))
+			(clean_keys (rest keys))
+			(recur (rest keys)))))
 
 (defn consistent
 	"True if the bindings are consistent.
@@ -224,16 +224,16 @@
 	False if var1 and var2 cannot be match."
 	[var1 var2]
 	(if (and (val? var1) (val? var2))
-	 	(if (= var1 var2)
-	 		true
-	 		false)
-	 	(if (and (vari? var1) (vari? var2))
-	 		(match var1 var2)
-	 		(if (and (vari? var1) (val? var2))
-	 			(match var1 var2)
-	 			(if (and (val? var1) (vari? var2))
-	 				(match var1 var2)
-	 				false)))))
+		(if (= var1 var2)
+			true
+			false)
+		(if (and (vari? var1) (vari? var2))
+			(match var1 var2)
+			(if (and (vari? var1) (val? var2))
+				(match var1 var2)
+				(if (and (val? var1) (vari? var2))
+					(match var1 var2)
+					false)))))
 
 (defn create_match_list
 	"Creates the bindings between list1 and list2.
