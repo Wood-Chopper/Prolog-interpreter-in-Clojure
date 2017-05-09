@@ -3,18 +3,20 @@
 (def database (ref {}))
 (def bindings (ref {}))
 
-(declare
-	<-
-	?-
-	test_rules
-	prolog_and
-	unify
-	match
-	in?
-	)
 
 
-(defn set_bindings
+
+
+;============================================================
+;     CRUD of the bindings between the prolog variables
+;============================================================
+
+(defn binds
+	"Return the binds."
+	[]
+	(deref bindings))
+
+(defn set_binds
 	"Resets the bindings with the `values'."
 	[values]
 	(dosync
@@ -22,19 +24,23 @@
 			bindings
 			values)))
 
-(defn add_bindings
+(defn add_bind
 	"Adds a binding."
 	[key value]
-	(set_bindings
+	(set_binds
 		(merge
-			(deref bindings)
+			(binds)
 				{key value})))
 
-(defn remove_bindings
+(defn remove_bind
 	"Removes a binding."
 	[key]
-	(set_bindings
-		(dissoc (deref bindings) key)))
+	(set_binds
+		(dissoc (binds) key)))
+
+;============================================================
+;   Methods to check the type of a clojure symbol in prolog
+;============================================================
 
 (defn vari?
 	"True if word is an variable in prolog."
@@ -46,12 +52,27 @@
 	[word]
 	(Character/isLowerCase (first (str word))))
 
+;============================================================
+;                       Helper methods
+;============================================================
+
+(defn in? 
+	"True if coll contains elm.
+	Source: http://stackoverflow.com/a/3249777/4203437"
+	[coll elm]  
+	(some
+		#(= elm %) coll))
+
+;============================================================
+;                     Renaming methods
+;============================================================
+
 (defn rename_arg
 	[arg]
 	(if (val? arg)
 		arg
-		(if (or (in? (vals (deref bindings)) arg)
-				(contains? (deref bindings) (keyword arg)))
+		(if (or (in? (vals (binds)) arg)
+				(contains? (binds) (keyword arg)))
 			(rename_arg (symbol (str (str arg) "*")))
 			arg)))
 
@@ -79,12 +100,13 @@
 			(list (rename_clauses (first rules)))
 			(rename_rules(rest rules)))))
 
-(defn in? 
-	"True if coll contains elm.
-	Source: http://stackoverflow.com/a/3249777/4203437"
-	[coll elm]  
-	(some
-		#(= elm %) coll))
+
+
+
+
+;============================================================
+;                Methods related to the macro `<-'
+;============================================================
 
 (defn add_rule
 	"Adds a new rule to the database."
@@ -110,43 +132,33 @@
 		head
 		body))
 
-(defn get_rules
-	"Returns the rules associated to the `clause'."
-	[clause]
-	(rename_rules
-		(get
-			(deref database)
-			(keyword (first clause)))))
 
-(defn key_of_val
-	"Returns the key related to the value `val' in the `bindings'."
-	[val keys]
-	(if (or (= keys nil) (= 0 (count keys)))
-		nil
-		(if (= (get (deref bindings) (first keys))
-				val)
-			(first keys)
-			(key_of_val val (rest keys)))))
+
+
+
+;============================================================
+;       Methods related to the cleaning of the binds
+;============================================================
 
 (defn get_last_value
 	"Returns the last value of a key by removing the intermediate bindings.
 	Example: in {:A X, :X F, :F R}, the last value of X is R.
 			{:A X, :X F, :F R} became {:A X} and R is returned."
 	[value]
-	(if (contains? (deref bindings) (keyword value))
-		(let [value2 (get (deref bindings) (keyword value))]
-			(remove_bindings (keyword value))
+	(if (contains? (binds) (keyword value))
+		(let [value2 (get (binds) (keyword value))]
+			(remove_bind (keyword value))
 			(get_last_value value2))
 		value))
 
 (defn clean_key
 	"Cleans a specific `key'."
 	[key]
-	(let [value (get (deref bindings) key)]
+	(let [value (get (binds) key)]
 		(if (or (= nil value) (val? value))
 			nil
 			(let [new_value (get_last_value value)]
-				(add_bindings key new_value)
+				(add_bind key new_value)
 				nil))))
 
 (defn clean_keys
@@ -170,23 +182,27 @@
 		true
 		(if (and
 				(val? (.substring (str (first keys)) 1))
-				(val? (get (deref bindings) (first keys)))
+				(val? (get (binds) (first keys)))
 				(not=
 					(first keys)
-					(keyword (get (deref bindings) (first keys)))))
+					(keyword (get (binds) (first keys)))))
 			false
 			(consistent (rest keys)))))
+
+;============================================================
+;          Methods related to the unification
+;============================================================
 
 (defn can_be_bound
 	"True if the binding of var1 and var2 do not create duplicate values in the `bindings'."
 	[var1 var2]
-	(if (contains? (deref bindings) (keyword var1))
+	(if (contains? (binds) (keyword var1))
 		(if (and
 				(vari? var1)
 				(vari?  var2))
 			true
 			false)
-		(if (in? (vals (deref bindings)) var2)
+		(if (in? (vals (binds)) var2)
 			false
 			true)))
 
@@ -194,13 +210,13 @@
 	"Adds the binding {:var1 var2}
 	True only if the bindings are consistent."
 	[var1 var2]
-	(if (= (get (deref bindings) (keyword var1)) var2)
+	(if (= (get (binds) (keyword var1)) var2)
 		true
 		(if (can_be_bound var1 var2)
 			(do
-				(add_bindings (keyword var1) var2)
-				(clean_keys (keys (deref bindings)))
-				(consistent (keys (deref bindings))))
+				(add_bind (keyword var1) var2)
+				(clean_keys (keys (binds)))
+				(consistent (keys (binds))))
 			false)))
 
 (defn create_match
@@ -241,12 +257,25 @@
 	(if-not (= (count clause)
 				(count (first rule)))
 		false
-		(let [saved_bindings (deref bindings)]
+		(let [saved_bindings (binds)]
 			(if (create_match_list clause (first rule))
 				true
 				(do
-					(set_bindings saved_bindings)
+					(set_binds saved_bindings)
 					false)))))
+
+;============================================================
+;             Main methods of the resolution
+;============================================================
+(declare test_rules)
+
+(defn get_rules
+	"Returns the rules associated to the `clause'."
+	[clause]
+	(rename_rules
+		(get
+			(deref database)
+			(keyword (first clause)))))
 
 (defn prolog_and
 	"The clauses must all be satisfied, there are tested one by one:
@@ -258,7 +287,7 @@
 	[clauses]
 	(if (or (= 0 (count clauses)) (= nil clauses))
 		true
-		(let [saved_bindings (deref bindings)]
+		(let [saved_bindings (binds)]
 			(if
 				(test_rules
 					(first clauses)
@@ -266,7 +295,7 @@
 					(rest clauses))
 				true
 				(do
-					(set_bindings saved_bindings)
+					(set_binds saved_bindings)
 					false)))))
 
 (defn test_rules
@@ -282,7 +311,7 @@
 	(if
 		(= 0 (count rules))
 		false
-		(let [saved_bindings (deref bindings)]
+		(let [saved_bindings (binds)]
 			(if
 				(and
 					(unify
@@ -294,11 +323,15 @@
 						nexts))
 				true
 				(do
-					(set_bindings saved_bindings)
+					(set_binds saved_bindings)
 					(test_rules
 						clause
 						(rest rules)
 						nexts))))))
+
+;============================================================
+;          Methods to filter the result printed
+;============================================================
 
 (defn to_keys
 	"Transform the list of `vars' in list of keys and remove the vars that are considered as atoms in prolog."
@@ -328,26 +361,30 @@
 		nil
 		(if-not (in? vars (first key_s))
 			(do
-				(remove_bindings (first key_s))
+				(remove_bind (first key_s))
 				(filter_unknow vars (rest key_s)))
 			(filter_unknow vars (rest key_s)))))
+
+;============================================================
+;          The declaration of the macro `?-'
+;============================================================
 
 (defmacro ?-
 	"Runs queries against the knowledge base.
 	It takes a variable number of goal clauses.
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
-	(set_bindings {})
+	(set_binds {})
 	(if
 		(=(count clauses) 0)
 		'()
 		(let [result (prolog_and clauses) unknow (unknow_var clauses)]
-			(filter_unknow unknow (keys (deref bindings)))
+			(filter_unknow unknow (keys (binds)))
 			(printf "Call:     %s\n" clauses)
 			(printf "Result:   %s\n" result)
-			(printf "Bindings: %s\n" (deref bindings))
+			(printf "Bindings: %s\n" (binds))
 			(println)
-			(let [binds (deref bindings)]
-				(set_bindings {})
+			(let [binds (binds)]
+				(set_binds {})
 				[result (str binds)]))))
 
