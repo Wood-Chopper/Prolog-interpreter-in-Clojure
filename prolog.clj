@@ -16,24 +16,37 @@
 	in?
 	)
 
-(defn bindings_add
-	[])
+
+(defn set_bindings
+	[values]
+	(dosync
+		(ref-set
+			bindings
+			values)))
+
+(defn add_bindings
+	[key value]
+	(set_bindings
+		(merge
+			(deref bindings)
+				{key value})))
+
+(defn remove_bindings
+	[key]
+	(set_bindings
+		(dissoc (deref bindings) key)))
 
 (defn vari?
 	[word]
-	(Character/isUpperCase (first word)))
+	(Character/isUpperCase (first (str word))))
 
 (defn val?
 	[word]
-	(Character/isLowerCase (first word)))
-
-(defn concat_vec
-	[list1 list2]
-	(vec (concat list1 list2)))
+	(Character/isLowerCase (first (str word))))
 
 (defn rename_arg
 	[arg]
-	(if (val? (str arg))
+	(if (val? arg)
 		arg
 		(if (or (in? (vals (deref bindings)) arg)
 				(contains? (deref bindings) (keyword arg)))
@@ -42,34 +55,34 @@
 
 (defn rename_args
 	[args]
-	(if (= 0(count args))
-		[]
-		(concat_vec
-			[(rename_arg (first args))]
+	(if (= 0 (count args))
+		'()
+		(concat
+			(list (rename_arg (first args)))
 			(rename_args (rest args)))))
 
 (defn rename_clauses
 	[clauses]
-	(if (= 0(count clauses))
-		[]
-		(concat_vec
-			[(rename_args (first clauses))]
+	(if (= 0 (count clauses))
+		'()
+		(concat
+			(list (rename_args (first clauses)))
 			(rename_clauses(rest clauses)))))
 
 (defn rename_rules
 	[rules]
-	(if (= 0(count rules))
-		[]
+	(if (= 0 (count rules))
+		'()
 		(concat
-			[(rename_clauses (first rules))]
+			(list (rename_clauses (first rules)))
 			(rename_rules(rest rules)))))
 
 (defn in? 
-	"true if coll contains elm"
+	"true if coll contains elm
+	Source: http://stackoverflow.com/a/3249777/4203437"
 	[coll elm]  
 	(some
-		#(= elm %)
-		coll))
+		#(= elm %) coll))
 
 (defn add_rule
 	[head body]
@@ -79,12 +92,12 @@
 			(merge-with
 				concat
 				(deref memory)
-				{(keyword (first head)) (list (cons (rest head) body))}
-				)
-			)
-		)
-	nil
-	)
+				{(keyword (first head))
+					(list
+						(cons
+							(rest head)
+							body))})))
+	nil)
 
 (defmacro <- 
 	"Define new rules and facts.
@@ -93,95 +106,66 @@
 	[head & body]
 	(add_rule
 		head
-		body
-		)
-	)
+		body))
 
 (defn get_rules
 	[clause]
-	(rename_rules (get (deref memory) (keyword (first clause))))
-	)
+	(rename_rules
+		(get
+			(deref memory)
+			(keyword (first clause)))))
 
 (defn key_of_val
 	[val keys]
 	(if (or (= keys nil) (= 0 (count keys)))
 		nil
-		(if (= (get (deref bindings) (first keys)) val)
+		(if (= (get (deref bindings) (first keys))
+				val)
 			(first keys)
-			(key_of_val val (rest keys))
-			)
-		)
-	)
+			(key_of_val val (rest keys)))))
 
 (defn can_be_bound
 	[var1 var2]
 	(if (contains? (deref bindings) (keyword var1))
-		(if (and (vari? (str var1)) (vari? (str var2)))
+		(if (and
+				(vari? var1)
+				(vari?  var2))
 			true
-			false
-			)
+			false)
 		(if (in? (vals (deref bindings)) var2)
 			false
-			true
-			)
-		)
-	)
+			true)))
 
 (defn rename_key
 	[key]
 	(if (contains? (deref bindings) key)
 		(rename_key (symbol (str (str key) "*")))
-		key
-		)
-	)
+		key))
 
 (defn rename_value
 	[value]
-	(if (val? (str value))
+	(if (val? value)
 		value
 		(if (in? (vals (deref bindings)) value)
 			(rename_key (symbol (str (str value) "*")))
-			value
-			)
-		)
-	)
+			value)))
 
 (defn get_last_value
 	[value]
 	(if (contains? (deref bindings) (keyword value))
 		(let [value2 (get (deref bindings) (keyword value))]
-			(dosync
-				(ref-set
-					bindings
-					(dissoc (deref bindings) (keyword value))
-					)
-				)
-			(get_last_value value2)
-			)
-		value
-		)
-	)
+			(remove_bindings (keyword value))
+			(get_last_value value2))
+		value))
 
 (defn clean_key
 	[key]
 	(let [value (get (deref bindings) key)]
-		(if (or (= nil value) (val? (str value)))
+		(if (or (= nil value) (val? value))
 			nil
 			(let [new_value (get_last_value value)]
-				(dosync
-					(ref-set
-						bindings
-						(merge
-							(deref bindings)
-							{key new_value}
-							)
-						)
-					)
-				nil
-				)
-			)
-		)
-	)
+				(add_bindings key new_value)
+				nil))))
 
 (defn clean_keys
 	[keys]
@@ -189,21 +173,20 @@
 		nil
 		(do
 			(clean_key (first keys))
-			(clean_keys (rest keys))
-			)
-		)
-	)
+			(clean_keys (rest keys)))))
 
 (defn consistent
 	[keys]
 	(if (or (= nil keys) (= 0 (count keys)))
 		true
-		(if (and (val? (rest (str (first keys)))) (val? (str (get (deref bindings) (first keys)))) (not= (first keys) (keyword (get (deref bindings) (first keys)))))
+		(if (and
+				(val? (.substring (str (first keys)) 1))
+				(val? (get (deref bindings) (first keys)))
+				(not=
+					(first keys)
+					(keyword (get (deref bindings) (first keys)))))
 			false
-			(consistent (rest keys))
-			)
-		)
-	)
+			(consistent (rest keys)))))
 
 (defn match
 	[var1 var2]
@@ -211,41 +194,24 @@
 		true
 		(if (can_be_bound var1 var2)
 			(do
-				(dosync
-					(ref-set bindings
-						(merge
-							(deref bindings)
-							{(keyword var1) var2}
-							)
-						)
-					)
+				(add_bindings (keyword var1) var2)
 				(clean_keys (keys (deref bindings)))
-				(consistent (keys (deref bindings)))
-				)
-			false
-			)
-		)
-	)
+				(consistent (keys (deref bindings))))
+			false)))
 
 (defn create_match
 	[var1 var2]
-	(if (and (val? (str var1)) (val? (str var2)))
+	(if (and (val? var1) (val? var2))
 	 	(if (= var1 var2)
 	 		true
-	 		false
-	 		)
-	 	(if (and (vari? (str var1)) (vari? (str var2)))
+	 		false)
+	 	(if (and (vari? var1) (vari? var2))
 	 		(match var1 var2)
-	 		(if (and (vari? (str var1)) (val? (str var2)))
+	 		(if (and (vari? var1) (val? var2))
 	 			(match var1 var2)
-	 			(if (and (val? (str var1)) (vari? (str var2)))
+	 			(if (and (val? var1) (vari? var2))
 	 				(match var1 var2)
-	 				false
-	 				)
-	 			)
-	 		)
-	 	)
-	)
+	 				false)))))
 
 (defn create_match_list
 	"Create the bindings between list1 and list2.
@@ -257,37 +223,24 @@
 		(if
 			(create_match
 				(first list1)
-				(first list2)
-				)
+				(first list2))
 			(create_match_list
 				(rest list1)
-				(rest list2)
-				)
-			false
-			)
-		)
-	)
+				(rest list2))
+			false)))
 
 (defn unify
 	"Test if the clause can be unified with the rule."
 	[clause rule]
-	(if-not (= (count clause) (count (first rule)))
+	(if-not (= (count clause)
+				(count (first rule)))
 		false
 		(let [saved_bindings (deref bindings)]
 			(if (create_match_list clause (first rule))
 				true
 				(do
-					(dosync
-						(ref-set bindings
-							saved_bindings
-							)
-						)
-					false
-					)
-				)
-			)
-		)
-	)
+					(set_bindings saved_bindings)
+					false)))))
 
 (defn prolog_and
 	"The clauses must all be satisfied, there are tested one by one:
@@ -304,21 +257,11 @@
 				(test_rules
 					(first clauses)
 					(get_rules (first clauses))
-					(rest clauses)
-				)
+					(rest clauses))
 				true
 				(do
-					(dosync
-						(ref-set bindings
-							saved_bindings
-							)
-						)
-					false
-					)
-				)
-			)
-		)
-	)
+					(set_bindings saved_bindings)
+					false)))))
 
 (defn test_rules
 	"The clause clause is tested with the rules one by one:
@@ -338,57 +281,37 @@
 				(and
 					(unify
 						(rest clause)
-						(first rules)
-						)
+						(first rules))
 					(prolog_and
-						(rest (first rules))
-						)
+						(rest (first rules)))
 					(prolog_and
-						nexts
-						)
-					)
-					true
-					(do
-						(dosync
-							(ref-set bindings
-								saved_bindings
-								)
-							)
-						(test_rules
-							clause
-							(rest rules)
-							nexts
-						)
-					)
-				)
-			)
-		)
-	)
+						nexts))
+				true
+				(do
+					(set_bindings saved_bindings)
+					(test_rules
+						clause
+						(rest rules)
+						nexts))))))
 
 (defn to_keys
 	[vars]
 	(if (or (= nil vars) (= 0 (count vars)))
 		nil
-		(if (vari? (str (first vars)))
+		(if (vari? (first vars))
 			(concat
-				[(keyword (first vars))]
-				(to_keys (rest vars))
-				)
-			(to_keys (rest vars))
-			)
-		)
-	)
+				(list (keyword (first vars)))
+				(to_keys (rest vars)))
+			(to_keys (rest vars)))))
 
 (defn concat_in
 	[lists]
-	(if (or (= nil lists) (= 0 (count lists)))
+	(if (or (= nil lists)
+			(= 0 (count lists)))
 		nil
 		(concat
 			(to_keys (first lists))
-			(concat_in (rest lists))
-			)
-		)
-	)
+			(concat_in (rest lists)))))
 
 (defn keep_unknow
 	[vars key_s]
@@ -396,18 +319,9 @@
 		nil
 		(if-not (in? vars (first key_s))
 			(do
-				(dosync
-					(ref-set
-						bindings
-						(dissoc (deref bindings) (first key_s))
-						)
-					)
-				(keep_unknow vars (rest key_s))
-				)
-			(keep_unknow vars (rest key_s))
-			)
-		)
-	)
+				(remove_bindings (first key_s))
+				(keep_unknow vars (rest key_s)))
+			(keep_unknow vars (rest key_s)))))
 
 (defmacro ?-
 	"Runs queries against the knowledge base.
@@ -426,9 +340,5 @@
 			(println)
 			(let [binds (deref bindings)]
 				(dosync(ref-set bindings {}))
-				[result (str binds)]
-				)
-			)
-		)
-	)
+				[result (str binds)]))))
 
