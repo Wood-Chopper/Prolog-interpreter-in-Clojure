@@ -1,35 +1,44 @@
 ;;lein repl
 ;;(load-file "prolog.clj")
 
+(ns prolog)
+
 (def memory (ref {}))
-(def s (ref {}))
+(def bindings (ref {}))
 
 (declare
 	<-
 	?-
-	unify_or
-	unify_and
+	test_rules
+	prolog_and
 	unify
 	match
 	in?
 	)
 
+(defn bindings_add
+	[])
+
+(defn vari?
+	[word]
+	(Character/isUpperCase (first word)))
+
+(defn val?
+	[word]
+	(Character/isLowerCase (first word)))
 
 (defn concat_vec
 	[list1 list2]
-	(into [] (concat list1 list2))
-	)
+	(vec (concat list1 list2)))
 
 (defn rename_arg
 	[arg]
-	(if (Character/isLowerCase (first (str arg)))
+	(if (val? (str arg))
 		arg
-		(if (or (in? (vals (deref s)) arg) (contains? (deref s) (keyword arg)))
+		(if (or (in? (vals (deref bindings)) arg)
+				(contains? (deref bindings) (keyword arg)))
 			(rename_arg (symbol (str (str arg) "*")))
-			arg
-			)
-		)
-	)
+			arg)))
 
 (defn rename_args
 	[args]
@@ -37,10 +46,7 @@
 		[]
 		(concat_vec
 			[(rename_arg (first args))]
-			(rename_args (rest args))
-			)
-		)
-	)
+			(rename_args (rest args)))))
 
 (defn rename_clauses
 	[clauses]
@@ -48,30 +54,22 @@
 		[]
 		(concat_vec
 			[(rename_args (first clauses))]
-			(rename_clauses(rest clauses))
-			)
-		)
-	)
+			(rename_clauses(rest clauses)))))
 
 (defn rename_rules
 	[rules]
 	(if (= 0(count rules))
 		[]
-		(concat_vec
-			[(into [] (rename_clauses (first rules)))]
-			(rename_rules(rest rules))
-			)
-		)
-	)
+		(concat
+			[(rename_clauses (first rules))]
+			(rename_rules(rest rules)))))
 
 (defn in? 
 	"true if coll contains elm"
 	[coll elm]  
 	(some
 		#(= elm %)
-		coll
-		)
-	)
+		coll))
 
 (defn add_rule
 	[head body]
@@ -79,21 +77,13 @@
 		(ref-set
 			memory
 			(merge-with
-				concat_vec
+				concat
 				(deref memory)
-				{(keyword (first head)) (into [] (list (cons (into [] (rest head)) (into [] body))))}
+				{(keyword (first head)) (list (cons (rest head) body))}
 				)
 			)
 		)
 	nil
-	)
-
-(defn to_vec
-	[body]
-	(if (= (count body) 0)
-		[]
-		(into [] (cons (into [] (first body)) (to_vec (rest body))))
-		)
 	)
 
 (defmacro <- 
@@ -103,7 +93,7 @@
 	[head & body]
 	(add_rule
 		head
-		(into [] (to_vec body))
+		body
 		)
 	)
 
@@ -116,7 +106,7 @@
 	[val keys]
 	(if (or (= keys nil) (= 0 (count keys)))
 		nil
-		(if (= (get (deref s) (first keys)) val)
+		(if (= (get (deref bindings) (first keys)) val)
 			(first keys)
 			(key_of_val val (rest keys))
 			)
@@ -125,22 +115,21 @@
 
 (defn can_be_bound
 	[var1 var2]
-	(if (contains? (deref s) (keyword var1))
-		(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
+	(if (contains? (deref bindings) (keyword var1))
+		(if (and (vari? (str var1)) (vari? (str var2)))
 			true
 			false
 			)
-		(if (in? (vals (deref s)) var2)
+		(if (in? (vals (deref bindings)) var2)
 			false
 			true
 			)
 		)
 	)
-; :d C
-; :C b => false
+
 (defn rename_key
 	[key]
-	(if (contains? (deref s) key)
+	(if (contains? (deref bindings) key)
 		(rename_key (symbol (str (str key) "*")))
 		key
 		)
@@ -148,9 +137,9 @@
 
 (defn rename_value
 	[value]
-	(if (Character/isLowerCase (first (str value)))
+	(if (val? (str value))
 		value
-		(if (in? (vals (deref s)) value)
+		(if (in? (vals (deref bindings)) value)
 			(rename_key (symbol (str (str value) "*")))
 			value
 			)
@@ -159,12 +148,12 @@
 
 (defn get_last_value
 	[value]
-	(if (contains? (deref s) (keyword value))
-		(let [value2 (get (deref s) (keyword value))]
+	(if (contains? (deref bindings) (keyword value))
+		(let [value2 (get (deref bindings) (keyword value))]
 			(dosync
 				(ref-set
-					s
-					(dissoc (deref s) (keyword value))
+					bindings
+					(dissoc (deref bindings) (keyword value))
 					)
 				)
 			(get_last_value value2)
@@ -175,15 +164,15 @@
 
 (defn clean_key
 	[key]
-	(let [value (get (deref s) key)]
-		(if (or (= nil value) (Character/isLowerCase (first (str value))))
+	(let [value (get (deref bindings) key)]
+		(if (or (= nil value) (val? (str value)))
 			nil
 			(let [new_value (get_last_value value)]
 				(dosync
 					(ref-set
-						s
+						bindings
 						(merge
-							(deref s)
+							(deref bindings)
 							{key new_value}
 							)
 						)
@@ -209,7 +198,7 @@
 	[keys]
 	(if (or (= nil keys) (= 0 (count keys)))
 		true
-		(if (and (Character/isLowerCase (first (rest (str (first keys))))) (Character/isLowerCase (first (str (get (deref s) (first keys))))) (not (= (first keys) (keyword (get (deref s) (first keys))) )))
+		(if (and (val? (rest (str (first keys)))) (val? (str (get (deref bindings) (first keys)))) (not= (first keys) (keyword (get (deref bindings) (first keys)))))
 			false
 			(consistent (rest keys))
 			)
@@ -218,20 +207,20 @@
 
 (defn match
 	[var1 var2]
-	(if (= (get (deref s) (keyword var1)) var2)
+	(if (= (get (deref bindings) (keyword var1)) var2)
 		true
 		(if (can_be_bound var1 var2)
 			(do
 				(dosync
-					(ref-set s
+					(ref-set bindings
 						(merge
-							(deref s)
+							(deref bindings)
 							{(keyword var1) var2}
 							)
 						)
 					)
-				(clean_keys (keys (deref s)))
-				(consistent (keys (deref s)))
+				(clean_keys (keys (deref bindings)))
+				(consistent (keys (deref bindings)))
 				)
 			false
 			)
@@ -240,16 +229,16 @@
 
 (defn create_match
 	[var1 var2]
-	(if (and (Character/isLowerCase (first (str var1))) (Character/isLowerCase (first (str var2))))
+	(if (and (val? (str var1)) (val? (str var2)))
 	 	(if (= var1 var2)
 	 		true
 	 		false
 	 		)
-	 	(if (and (Character/isUpperCase (first (str var1))) (Character/isUpperCase (first (str var2))))
+	 	(if (and (vari? (str var1)) (vari? (str var2)))
 	 		(match var1 var2)
-	 		(if (and (Character/isUpperCase (first (str var1))) (Character/isLowerCase (first (str var2))))
+	 		(if (and (vari? (str var1)) (val? (str var2)))
 	 			(match var1 var2)
-	 			(if (and (Character/isLowerCase (first (str var1))) (Character/isUpperCase (first (str var2))))
+	 			(if (and (val? (str var1)) (vari? (str var2)))
 	 				(match var1 var2)
 	 				false
 	 				)
@@ -282,15 +271,15 @@
 (defn unify
 	"Test if the clause can be unified with the rule."
 	[clause rule]
-	(if (not (= (count clause) (count (first rule))))
+	(if-not (= (count clause) (count (first rule)))
 		false
-		(let [saved_s (deref s)]
-			(if (create_match_list (into [] clause) (first rule))
+		(let [saved_bindings (deref bindings)]
+			(if (create_match_list clause (first rule))
 				true
 				(do
 					(dosync
-						(ref-set s
-							saved_s
+						(ref-set bindings
+							saved_bindings
 							)
 						)
 					false
@@ -300,7 +289,7 @@
 		)
 	)
 
-(defn unify_and
+(defn prolog_and
 	"The clauses must all be satisfied, there are tested one by one:
 	* If there is no more clause to test, this return true
 	* To satisfy a clause, it must find a rule in the database that satisfy:
@@ -310,9 +299,9 @@
 	[clauses]
 	(if (or (= 0 (count clauses)) (= nil clauses))
 		true
-		(let [saved_s (deref s)]
+		(let [saved_bindings (deref bindings)]
 			(if
-				(unify_or
+				(test_rules
 					(first clauses)
 					(get_rules (first clauses))
 					(rest clauses)
@@ -320,8 +309,8 @@
 				true
 				(do
 					(dosync
-						(ref-set s
-							saved_s
+						(ref-set bindings
+							saved_bindings
 							)
 						)
 					false
@@ -331,41 +320,41 @@
 		)
 	)
 
-(defn unify_or
+(defn test_rules
 	"The clause clause is tested with the rules one by one:
 	* When a unification is possible between a rule and the clause,
-		1- the bindings are modified in the variable s
-		2- the conditions of the rule must be satisfied (unify_and)
-		3- and the nexts clauses must also be satisfied (unify_and).
-	* Or else, the s is reset to his previous value
+		1- the bindings are modified in the variable `bindings'
+		2- the conditions of the rule must be satisfied (prolog_and)
+		3- and the nexts clauses must also be satisfied (prolog_and).
+	* Or else, the `bindings' is reset to his previous value
 	and the next rule is tested.
 	* If there is no more rule to test, this return false."
 	[clause rules nexts]
 	(if
 		(= 0 (count rules))
 		false
-		(let [saved_s (deref s)]
+		(let [saved_bindings (deref bindings)]
 			(if
 				(and
 					(unify
 						(rest clause)
 						(first rules)
 						)
-					(unify_and
+					(prolog_and
 						(rest (first rules))
 						)
-					(unify_and
+					(prolog_and
 						nexts
 						)
 					)
 					true
 					(do
 						(dosync
-							(ref-set s
-								saved_s
+							(ref-set bindings
+								saved_bindings
 								)
 							)
-						(unify_or
+						(test_rules
 							clause
 							(rest rules)
 							nexts
@@ -380,7 +369,7 @@
 	[vars]
 	(if (or (= nil vars) (= 0 (count vars)))
 		nil
-		(if (Character/isUpperCase (first (str (first vars))))
+		(if (vari? (str (first vars)))
 			(concat
 				[(keyword (first vars))]
 				(to_keys (rest vars))
@@ -405,12 +394,12 @@
 	[vars key_s]
 	(if (or (= nil key_s) (= 0 (count key_s)))
 		nil
-		(if (not (in? vars (first key_s)))
+		(if-not (in? vars (first key_s))
 			(do
 				(dosync
 					(ref-set
-						s
-						(dissoc (deref s) (first key_s))
+						bindings
+						(dissoc (deref bindings) (first key_s))
 						)
 					)
 				(keep_unknow vars (rest key_s))
@@ -425,125 +414,21 @@
 	It takes a variable number of goal clauses.
 	The effect is the same as separating the clauses with a comma in Prolog"
 	[& clauses]
-	(dosync(ref-set s {}))
+	(dosync(ref-set bindings {}))
 	(if
 		(=(count clauses) 0)
 		'()
-		(let [result (unify_and clauses) unknow (distinct (concat_in clauses))]
-			(keep_unknow unknow (keys (deref s)))
-			(println (deref s))
-			result
+		(let [result (prolog_and clauses) unknow (distinct (concat_in clauses))]
+			(keep_unknow unknow (keys (deref bindings)))
+			(printf "Call:     %s\n" clauses)
+			(printf "Result:   %s\n" result)
+			(printf "Bindings: %s\n" (deref bindings))
+			(println)
+			(let [binds (deref bindings)]
+				(dosync(ref-set bindings {}))
+				[result (str binds)]
+				)
 			)
 		)
 	)
-
-
-(<- (male george))
-
-(<- (append (list) T T))
-(<- (append (list H T) L2 (list H TR)) (append T L2 TR))
-
-(<- (parent Parent Child) (father Parent Child))
-(<- (parent Parent Child) (mother Parent Child))
-(<- (parent b c))
-(<- (parent a b))
-
-(<- (mother cecilia a))
-(<- (father george a))
-
-(<- (gp A C) (parent A B) (parent B C))
-(<- (gp s f))
-
-(<- (ami a b))
-(<- (ami b c))
-(<- (ami c d))
-(<- (ami d e))
-(<- (ami e f))
-(<- (ami A C) (ami A B) (ami B C))
-
-(<- (c a b))
-(<- (b A B) (c B A))
-(<- (a A B) (b B A))
-
-(println "")
-(println '(?- (parent X c)))
-(println(?- (parent X c)))
-
-(println "")
-(println '(?- (gp X c)))
-(println(?- (gp X c)))
-
-(println "")
-(println '(?- (gp X Y)))
-(println(?- (gp X Y)))
-
-(println "")
-(println '(?- (a X Y)))
-(println(?- (a X Y)))
-
-(println "")
-(println '(?- (ami a f)))
-(println(?- (ami a f)))
-
-
-(println "")
-(println '(?- (mother cecilia C) (father george C)))
-(println (?- (mother cecilia C) (father george C)))
-
-
-
-(println "")
-(println '(?- (append (list 1 (list 2 (list))) (list 3 (list 4 (list))) R)))
-(println (?- (append (list 1 (list 2 (list))) (list 3 (list 4 (list))) R)))
-
-
-;(println (symbol (str var1 1)))
-
-; {
-; 	:male
-; 	(
-; 		(
-; 			(george)
-; 			()
-; 		)
-; 	)
-; 	:parent
-; 	(
-; 		(
-; 			(Parent Child)
-; 			(
-; 				pather
-; 				Parent
-; 				Child
-; 			)
-; 		)
-; 		(
-; 			(Parent Child)
-; 			(
-; 				mother
-; 				Parent
-; 				Child
-; 			)
-; 		)
-; 	)
-; 	:append
-; 	(
-; 		[
-; 			((list) T T)
-; 			()
-; 		)
-; 		(
-; 			((list H T) L2 (list H TR))
-; 			(
-; 				append
-; 				T
-; 				L2
-; 				TR
-; 			)
-; 		)
-; 	)
-; }
-
-
-
 

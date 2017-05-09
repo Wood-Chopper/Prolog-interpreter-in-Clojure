@@ -1,3 +1,5 @@
+(load-file "prolog.clj")
+
 (ns tests
   (:use prolog))
 
@@ -50,11 +52,42 @@
   (<- (ancestor X Z) (parent X Z))
   (<- (ancestor X Z) (parent X Y) (ancestor Y Z))
 
-  (<- (append (list) T T))
-  (<- (append (list H T) L2 (list H TR))
-      (append T L2 TR))
+  (<- (male george))
+  
+  (<- (parent b c))
+  (<- (parent a b))
 
-  ; e.g. (?- (append (list 1 (list 2 (list))) (list 3 (list 4 (list))) R))
+  (<- (mother cecilia a))
+  (<- (father george a))
+
+  (<- (gp A C) (parent A B) (parent B C))
+  (<- (gp s f))
+
+  (<- (ami a b))
+  (<- (ami b c))
+  (<- (ami c d))
+  (<- (ami d e))
+  (<- (ami e f))
+  (<- (ami A C) (ami A B) (ami B C))
+
+  (<- (c a b))
+  (<- (b A B) (c B A))
+  (<- (a A B) (b B A))
+
+  (?- (parent X c))
+
+  (?- (gp X c))
+
+  (?- (gp X Y))
+
+  (?- (a X Y))
+
+  (?- (ami a f))
+
+  (?- (mother cecilia C) (father george C))
+
+  (?- (father F alexandra) (mother M alexandra))
+
 
   nil)
 
